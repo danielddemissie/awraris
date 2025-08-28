@@ -42,7 +42,7 @@ bun install
 
 ```bash
 bun run build
-# Output: ./awraris (single binary)
+# Output: bin/awraris (single binary)
 ```
 
 ### Run in development
