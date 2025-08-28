@@ -1,28 +1,19 @@
 {
-  "extends": "@tsconfig/node20/tsconfig.json",
   "compilerOptions": {
-    "outDir": "dist/src",
-    "baseUrl": ".",
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "allowUnusedLabels": false,
-    "allowUnreachableCode": false,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "forceConsistentCasingInFileNames": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "allowJs": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
     "declaration": true,
-    "sourceMap": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["src"],
-  "exclude": ["dist", "bundle", "node_modules"],
-  "ts-node": {
-    // these options are overrides used only by ts-node
-    // same as the --compilerOptions flag and the TS_NODE_COMPILER_OPTIONS environment variable
-    "compilerOptions": {
-      "module": "commonjs"
-    }
-  }
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
