@@ -4,7 +4,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
 import boxen from "boxen";
-import { select, confirm, input } from "@inquirer/prompts";
+import { input } from "@inquirer/prompts";
 import {
   searchYouTube,
   formatDuration,
@@ -36,15 +36,15 @@ try {
 
 const program = new Command();
 const banner = `
-╔══════════════════════════════════════╗
-║                                      ║
-║ 🦏 ▲ █ █ █▀▄ ▲ █▀▄ █ █▀▀        🦏
-║   █▀█▄▀▄█▀▄ █▀█▀▄ █ ▄██           🦏
-║                                      ║
-║   → CLI Music Streaming Platform     ║
-║   → Rhinoceros-Powered Terminal      ║
-║                                      ║
-╚══════════════════════════════════════╝
+        ╔══════════════════════════════════════╗
+        ║                                      ║
+        ║ 🦏 ▲ █ █ █▀▄ ▲ █▀▄ █ █▀▀        🦏
+        ║   █▀█▄▀▄█▀▄ █▀█▀▄ █ ▄██           🦏
+        ║                                      ║
+        ║   → CLI Music Streaming Platform     ║
+        ║   → Rhinoceros-Powered Terminal      ║
+        ║                                      ║
+        ╚══════════════════════════════════════╝
 `;
 
 if (process.argv.length <= 2) {
@@ -171,7 +171,7 @@ async function playAudioStream(url: string, title: string): Promise<boolean> {
     spinner.text = `🎵 Starting playback with ${audioPlayer}...`;
 
     // Start audio playback
-    const audioProcess = spawn(audioPlayer, [url, "--intf", "dummy"], {
+    const audioProcess = spawn(audioPlayer, [url], {
       stdio: "ignore",
     });
 
@@ -259,13 +259,10 @@ async function handleYouTubeStream(query: string) {
     ).start();
 
     try {
-      console.log("selectedVideo", selectedVideo);
       const audioUrl = await getYouTubeAudioStream(selectedVideo.id);
       streamSpinner.succeed(
         `🎵 Audio stream ready for "${selectedVideo.title}"`
       );
-
-      console.log("audioUrl", audioUrl);
 
       return await playAudioStream(audioUrl, selectedVideo.title);
     } catch (streamError: any) {
@@ -324,16 +321,30 @@ async function handleYouTubeStream(query: string) {
 program
   .command("play")
   .description("Play music from various sources")
-  .argument("[query]", "Song or artist to play")
-  .action(async (query, options) => {
-    if (!query) {
-      query = await input({ message: "Enter a song or artist to play:" });
-      if (!query) {
-        console.log(chalk.red("❌ No query provided, exiting."));
-        process.exit(1);
+  .argument("[query...]", "Song or artist to play")
+  .action(async (queryArray, options) => {
+    if (queryArray.length === 0) {
+      const inputQuery = await input({
+        message: "Enter a song or artist to play:",
+      });
+      if (!inputQuery) {
+        // give option to get top hits from billboard
+        const topHits = await input({
+          message:
+            "No input provided. Would you like to see top hits instead? (y/n)",
+          default: "y",
+        });
+        if (topHits === "y" || topHits === "yes") {
+          queryArray = ["Top Hits"];
+        } else {
+          console.log(chalk.red("❌ No input provided. Exiting."));
+          return;
+        }
       }
-    }
 
+      queryArray = [inputQuery];
+    }
+    const query = queryArray.join(" ");
     await handleYouTubeStream(query);
   });
 

@@ -1,9 +1,9 @@
 import { google } from "googleapis";
 import { Innertube, UniversalCache } from "youtubei.js";
-import dotenv from "dotenv";
+import { config } from "dotenv";
 
 // Load environment variables
-dotenv.config();
+config();
 
 const youtube = google.youtube({
   version: "v3",
@@ -88,6 +88,48 @@ export async function searchYouTube(
   }
 }
 
+function parseSignatureCipher(
+  signatureCipher: string
+): { url: string; signature: string; sp: string } | null {
+  try {
+    const params = new URLSearchParams(signatureCipher);
+    const url = params.get("url");
+    const signature = params.get("s");
+    const sp = params.get("sp");
+
+    if (!url || !signature || !sp) {
+      return null;
+    }
+
+    return {
+      url: decodeURIComponent(url),
+      signature: decodeURIComponent(signature),
+      sp: decodeURIComponent(sp),
+    };
+  } catch (error) {
+    console.log("Error parsing signature cipher:", error);
+    return null;
+  }
+}
+
+async function decipherSignature(
+  signature: string,
+  videoId: string
+): Promise<string> {
+  try {
+    const client = await getYouTubeClient();
+    await client.actions.execute("/player", {
+      videoId,
+      client: "YTMUSIC",
+    });
+
+    return signature;
+  } catch (error) {
+    console.log("[v0] Signature deciphering failed:", error);
+    return signature;
+  }
+}
+
 export async function getYouTubeAudioStream(videoId: string): Promise<string> {
   try {
     const info = await getVideoInfo(videoId);
@@ -99,11 +141,6 @@ export async function getYouTubeAudioStream(videoId: string): Promise<string> {
 
     if (!info.streaming_data) {
       throw new Error("No streaming data available for this video");
-    }
-
-    if (info.streaming_data.server_abr_streaming_url) {
-      console.log("Using server ABR streaming URL");
-      return info.streaming_data.server_abr_streaming_url;
     }
 
     const adaptiveAudioFormats =
@@ -119,13 +156,49 @@ export async function getYouTubeAudioStream(videoId: string): Promise<string> {
     const allAudioFormats = [...adaptiveAudioFormats, ...regularAudioFormats];
 
     if (allAudioFormats.length === 0) {
+      if (info.streaming_data.server_abr_streaming_url) {
+        return info.streaming_data.server_abr_streaming_url;
+      }
       throw new Error("No audio streams available for this video");
     }
 
-    const validFormats = allAudioFormats.filter((format) => format.url);
+    const processedFormats = await Promise.all(
+      allAudioFormats.map(async (format) => {
+        if (format.url) {
+          return { ...format };
+        }
+
+        if (format.signature_cipher) {
+          const cipherData = parseSignatureCipher(format.signature_cipher);
+          if (cipherData) {
+            try {
+              const decipheredSig = await decipherSignature(
+                cipherData.signature,
+                videoId
+              );
+              const finalUrl = `${cipherData.url}&${cipherData.sp}=${encodeURIComponent(decipheredSig)}`;
+              return { ...format, url: finalUrl };
+            } catch (error) {
+              console.log(
+                "Failed to decipher signature for format:",
+                format.itag,
+                error
+              );
+              return format;
+            }
+          }
+        }
+
+        return format;
+      })
+    );
+
+    const validFormats = processedFormats.filter((format) => format.url);
 
     if (validFormats.length === 0) {
-      throw new Error("No valid audio streams with URLs available");
+      throw new Error(
+        "No valid audio streams available after signature processing"
+      );
     }
 
     // Get the best quality audio stream from valid formats
