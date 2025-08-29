@@ -4,7 +4,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import ora from "ora";
 import boxen from "boxen";
-import { input } from "@inquirer/prompts";
+import { input, select } from "@inquirer/prompts";
 import {
   searchYouTube,
   formatDuration,
@@ -48,6 +48,29 @@ const banner = `
 ╚══════════════════════════════════════╝
 `;
 
+function getPlayerAnimation({
+  player,
+  artist,
+  title,
+}: {
+  player: string;
+  artist: string;
+  title: string;
+}) {
+  return chalk.cyan(`
+
+               AWRARIS                
+       🦏 ▲ █ █ █▀▄ ▲ █▀▄ █ █▀▀        🦏
+          █▀█▄▀▄█▀▄ █▀█▀▄ █ ▄██           🦏
+
+    → 🎵 Now Playing: ${title}          
+    → ▶ Player: ${player.toUpperCase()}                 
+    → 👤 By: ${artist.toLocaleUpperCase()}
+    
+         🦏 ... 🦏 .. 🦏...🦏
+`);
+}
+
 if (process.argv.length <= 2) {
   console.log(chalk.cyan(banner));
   console.log(
@@ -62,8 +85,6 @@ if (process.argv.length <= 2) {
   console.log(chalk.dim("Commands:"));
   console.log(chalk.dim("  play    Play music from various sources"));
   console.log(chalk.dim("  search  Search for music"));
-  console.log(chalk.dim("  queue   Manage playback queue"));
-  console.log(chalk.dim("  config  Configure AWRARIS settings\n"));
 
   console.log(chalk.dim("Options:"));
   console.log(chalk.dim("  -v, --version   Show version number"));
@@ -115,7 +136,11 @@ async function detectAudioPlayer(): Promise<string | null> {
   return null;
 }
 
-async function playAudioStream(url: string, title: string): Promise<boolean> {
+async function playAudioStream(
+  url: string,
+  title: string,
+  channelTitle: string
+): Promise<boolean> {
   const spinner = ora(`🦏 Initializing audio player...`).start();
 
   try {
@@ -227,15 +252,7 @@ async function playAudioStream(url: string, title: string): Promise<boolean> {
     spinner.succeed(`🎵 Now playing: ${title}`);
 
     console.log(
-      boxen(
-        `🎵 Now Playing: ${chalk.green(title)}\n🦏 Player: ${chalk.blue(audioPlayer.toUpperCase())}\n\n${chalk.dim("Press Ctrl+C to stop")}`,
-        {
-          padding: 1,
-          margin: 1,
-          borderStyle: "round",
-          borderColor: "green",
-        }
-      )
+      getPlayerAnimation({ player: audioPlayer, artist: channelTitle, title })
     );
 
     return true;
@@ -255,31 +272,24 @@ async function handleYouTubeStream(query: string) {
       throw new Error(`No results found for "${query}"`);
     }
 
-    spinner.succeed(`🎵 Found ${results.length} results for "${query}"`);
-
-    // Display search results
-    console.log(chalk.yellow("\n🎵 Search Results:"));
-    results.forEach((video, index) => {
-      console.log(
-        `${chalk.cyan((index + 1).toString())}. ${chalk.green(video.title)}\n` +
-          `   ${chalk.dim("by")} ${chalk.blue(video.channelTitle)} ${chalk.dim("•")} ${chalk.yellow(formatDuration(video.duration))}`
-      );
-    });
-
-    // Let user select which song to play
-    const selection = await input({
-      message: chalk.yellow("\n🦏 Select a song (1-5) or press Enter for #1: "),
-      validate: (input) => {
-        const num = Number(input);
-        return input === "" ||
-          (Number.isInteger(num) && num >= 1 && num <= results.length)
-          ? true
-          : `Please enter a number between 1 and ${results.length}`;
+    spinner.succeed(`🦏 🎵 Found ${results.length} results for "${query}"`);
+    const selectedId = await select({
+      message: chalk.blue("🦏 Select a song to play:"),
+      choices: results.map((video, idx) => ({
+        name: `${chalk.green(video.title)} ${chalk.dim("by")} ${chalk.blue(video.channelTitle)} ${chalk.dim("•")} ${chalk.yellow(formatDuration(video.duration))}`,
+        value: video.id,
+        short: video.title,
+      })),
+      pageSize: 5,
+      theme: {
+        icon: {
+          cursor: "🦏 ▶",
+        },
       },
     });
-    const selectedIndex = selection ? Number.parseInt(selection) - 1 : 0;
-    const selectedVideo = results[selectedIndex] || results[0];
 
+    const selectedVideo =
+      results.find((v) => v.id === selectedId) || results[0];
     if (!selectedVideo) {
       throw new Error(`❌ Invalid selection`);
     }
@@ -292,10 +302,14 @@ async function handleYouTubeStream(query: string) {
     try {
       const audioUrl = await getYouTubeAudioStream(selectedVideo.id);
       streamSpinner.succeed(
-        `🎵 Audio stream ready for "${selectedVideo.title}"`
+        `🦏 🎵 Audio stream ready to play "${selectedVideo.title}"`
       );
 
-      return await playAudioStream(audioUrl, selectedVideo.title);
+      return await playAudioStream(
+        audioUrl,
+        selectedVideo.title,
+        selectedVideo.channelTitle
+      );
     } catch (streamError: any) {
       streamSpinner.fail(`❌ Stream Error: ${streamError.message}`);
 
@@ -370,7 +384,9 @@ async function handlePuppeteerYouTubeStream(query: string) {
     if (results.length === 0) {
       throw new Error(`🦏 No results found for "${query}"`);
     }
-    spinner.succeed(`🎵 Found ${results.length} results for "${query}"`);
+    spinner.succeed(
+      chalk.blue(`🎵 Found ${results.length} results for "${query}"`)
+    );
 
     // Display search results
     console.log(chalk.yellow("\n🎵 Search Results:"));
