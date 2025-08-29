@@ -3,6 +3,7 @@ import chalk from "chalk";
 import boxen from "boxen";
 
 import { QueueItem } from "../types";
+import { playAudioStream } from "../commands/play.js";
 
 let currentQueue: QueueItem[] = [];
 let currentQueueIndex = 0;
@@ -72,7 +73,7 @@ export async function interactivePlayUI(initialQueue: QueueItem[] = []) {
       const currentSong = queue[currentSongIndex];
       statusBox.setContent(`Status: Playing "${currentSong.title}"`);
       updateQueueDisplay();
-      // TODO: Integrate actual playback logic here
+      void playAudioStream(currentSong.url, currentSong.title);
     } else {
       statusBox.setContent("Status: Queue finished");
       currentSongIndex = -1;

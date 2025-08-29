@@ -6,32 +6,15 @@ import { platform } from "os";
 import { spawn } from "child_process";
 
 import { PuppeteerYouTubeMusic } from "../utils/puppeteer.js";
-import { formatDuration, formatTime, parseDuration } from "../utils/index.js";
+import { formatDuration } from "../utils/index.js";
 import { searchYouTube } from "../utils/google-apis.js";
-import { QueueItem } from "../types/index.js";
 import { detectAudioPlayer, getYouTubeAudioStream } from "../utils/ytdlp.js";
-import {
-  interactivePlayUI,
-  setQueueItems,
-  setCurrentQueueIndex,
-} from "../ui/blessed.js";
 
-let currentQueue: QueueItem[] = [];
-let currentQueueIndex = 0;
-let currentProgressInterval: NodeJS.Timeout | null = null;
-
-async function playAudioStream(
+export async function playAudioStream(
   url: string,
-  title: string,
-  queue?: QueueItem[]
+  title: string
 ): Promise<boolean> {
   const spinner = ora(`🦏 Initializing audio player...`).start();
-
-  if (queue) {
-    currentQueue = queue;
-    currentQueueIndex = 0;
-  }
-
   try {
     const audioPlayer = await detectAudioPlayer();
 
@@ -115,29 +98,8 @@ async function playAudioStream(
     });
 
     audioProcess.on("close", async (code: any) => {
-      if (currentProgressInterval) {
-        clearInterval(currentProgressInterval);
-        currentProgressInterval = null;
-      }
-      process.stdout.write("\x1B[u\x1B[J");
-      process.stdout.write("\x1B[?25h");
-
       if (code === 0) {
         console.log(chalk.green(`🦏 Finished playing "${title}"`));
-        if (
-          currentQueue.length > 0 &&
-          currentQueueIndex < currentQueue.length - 1
-        ) {
-          currentQueueIndex++;
-          const nextSong = currentQueue[currentQueueIndex];
-          console.log(
-            chalk.yellow(`\n🦏 Playing next song: ${nextSong.title}`)
-          );
-          await playAudioStream(nextSong.url, nextSong.title);
-        } else if (currentQueue.length > 0) {
-          console.log(chalk.blue("\n🦏 Reached end of queue!"));
-          process.exit(0);
-        }
       }
     });
 
@@ -149,33 +111,17 @@ async function playAudioStream(
 
     spinner.succeed(`🎵 Now playing: ${title}`);
 
-    // If we have a queue, hand off UI to the interactive blessed queue manager.
-    if (currentQueue && currentQueue.length > 0) {
-      try {
-        setQueueItems(currentQueue);
-        setCurrentQueueIndex(currentQueueIndex);
-        void interactivePlayUI(currentQueue);
-      } catch (uiErr: any) {
-        // Fallback to previous console UI if blessed fails
-        console.error(
-          chalk.red("🦏 UI failed, falling back to console display:"),
-          uiErr.message
-        );
-      }
-    } else {
-      // Non-queued single-play fallback: simple console message
-      console.log(
-        boxen(
-          `${chalk.green("Now Playing")}: ${title}\n\n${chalk.dim("Press Ctrl+C to stop")}`,
-          {
-            padding: 1,
-            margin: 1,
-            borderStyle: "round",
-            borderColor: "green",
-          }
-        )
-      );
-    }
+    console.log(
+      boxen(
+        `🎵 Now Playing: ${chalk.green(title)}\n🦏 Player: ${chalk.blue(audioPlayer.toUpperCase())}\n\n${chalk.dim("Press Ctrl+C to stop")}`,
+        {
+          padding: 1,
+          margin: 1,
+          borderStyle: "round",
+          borderColor: "green",
+        }
+      )
+    );
 
     return true;
   } catch (error: any) {
@@ -254,7 +200,7 @@ async function handleYouTubeStream(query: string) {
       return false;
     }
   } catch (error: any) {
-    spinner.fail(`❌ YouTube API Error: ${error.message}`);
+    spinner.fail(`❌ Error: ${error.message}`);
 
     if (error.message.includes("API key")) {
       console.log(
