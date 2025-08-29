@@ -2,8 +2,9 @@ import { google } from "googleapis";
 import { Innertube, UniversalCache } from "youtubei.js";
 import { config } from "dotenv";
 
-// Load environment variables
-config();
+config({
+  quiet: true,
+});
 
 const youtube = google.youtube({
   version: "v3",

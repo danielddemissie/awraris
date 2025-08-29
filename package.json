@@ -46,6 +46,7 @@
     "figlet": "^1.7.0",
     "googleapis": "^159.0.0",
     "ora": "^8.0.1",
+    "puppeteer": "^24.17.1",
     "youtubei.js": "^15.0.1"
   },
   "devDependencies": {
