@@ -1,7 +1,7 @@
 import ora from "ora";
-import { searchYouTube } from "../utils/google-apis";
 import chalk from "chalk";
-import { formatDuration } from "../utils";
+import { searchYouTube } from "../utils/google-apis.js";
+import { formatDuration } from "../utils/index.js";
 
 export async function handleSearchCommand(
   query: string,

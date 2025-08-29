@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { config } from "dotenv";
-import { YouTubeVideo } from "../types";
+import type { YouTubeVideo } from "../types/index.ts";
 
 config({
   quiet: true,
