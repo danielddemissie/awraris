@@ -20,10 +20,6 @@ export class PuppeteerYouTubeMusic {
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
 
-    console.log(
-      chalk.blue("🦏 Initializing headless YouTube Music browser...")
-    );
-
     this.browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -150,22 +146,68 @@ export class PuppeteerYouTubeMusic {
 
   /**
    * Navigates to a specific song's URL and starts playback.
-   * @param songUrl The URL of the song from the search results.
+   * @param videoId The URL of the song from the search results.
    */
-  async playMusic(songUrl: string): Promise<void> {
+  async playMusic(videoId: string): Promise<void> {
     if (!this.page) throw new Error("Browser not initialized");
 
-    console.log(chalk.blue(`🎵 Playing song from URL: ${songUrl}`));
-
-    // --- IMPROVEMENT: Navigate directly to the song URL ---
-    await this.page.goto(songUrl, {
+    console.log(chalk.blue(`🎵 Playing song from URL: ${videoId}`));
+    await this.page.goto(`https://music.youtube.com/watch?v=${videoId}`, {
       waitUntil: "networkidle2",
     });
 
-    // Wait for the player bar to appear to ensure the page has loaded
-    await this.page.waitForSelector("ytmusic-player-bar", { timeout: 15000 });
+    await this.page.screenshot({ path: "screenshot.png" });
 
-    console.log(chalk.green("🎶 Music is now playing in the background!"));
+    // handle captcha
+    try {
+      await this.page.waitForSelector("iframe[src*='captcha']", {
+        timeout: 5000,
+      });
+      console.log(chalk.red("❌ CAPTCHA detected! Please solve it manually."));
+      await this.page.waitForFunction(
+        () => !document.querySelector("iframe[src*='captcha']"),
+        { polling: "mutation", timeout: 300000 } // wait up to 5 minutes
+      );
+      console.log(chalk.green("✅ CAPTCHA solved, continuing..."));
+    } catch (error) {
+      // No captcha found, continue
+    }
+
+    // handle cookie consent prompt if it appears
+    try {
+      const acceptButtonSelector =
+        'form[action="https://consent.youtube.com/save"] button[aria-label="Accept all"]';
+      await this.page.waitForSelector(acceptButtonSelector, {
+        timeout: 5000,
+      });
+      await this.page.click(acceptButtonSelector);
+      console.log(chalk.green("✅ Accepted cookies."));
+      await this.page.waitForNavigation({ waitUntil: "networkidle2" });
+    } catch (error) {
+      // No cookie prompt found, continue
+    }
+
+    this.page.screenshot({ path: "screenshot2.png" });
+    // Click the play button if it's not already playing
+    try {
+      const isPlaying = await this.page.evaluate(() => {
+        const playButton = document.querySelector(
+          "button.play-pause-button"
+        ) as HTMLButtonElement;
+        return playButton?.title === "Pause";
+      });
+
+      if (!isPlaying) {
+        await this.page.click("button.play-pause-button");
+      }
+      // Wait for the player bar to appear to ensure the page has loaded
+      await this.page.waitForSelector("ytmusic-player-bar", { timeout: 15000 });
+
+      await this.page.screenshot({ path: "screenshot3.png" });
+      console.log(chalk.green("🎶 Music is now playing in the background!"));
+    } catch (error) {
+      throw new Error(`Failed to start playback: ${error}`);
+    }
   }
 
   async getCurrentSong(): Promise<{ title: string; artist: string } | null> {

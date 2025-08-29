@@ -47,7 +47,7 @@
     "googleapis": "^159.0.0",
     "ora": "^8.0.1",
     "puppeteer": "^24.17.1",
-    "youtubei.js": "^15.0.1"
+    "ytdlp-nodejs": "^2.3.4"
   },
   "devDependencies": {
     "@types/blessed": "^0.1.25",

@@ -1,6 +1,7 @@
 import { google } from "googleapis";
-import { Innertube, UniversalCache } from "youtubei.js";
 import { config } from "dotenv";
+
+import { getAudioStream, playAudio } from "../utils/ytdlp.js";
 
 config({
   quiet: true,
@@ -11,25 +12,6 @@ const youtube = google.youtube({
   auth: process.env.YOUTUBE_API_KEY,
 });
 
-let youtubeClient: Innertube | null = null;
-
-async function getYouTubeClient(): Promise<Innertube> {
-  if (!youtubeClient) {
-    youtubeClient = await Innertube.create({ cache: new UniversalCache(true) });
-  }
-  return youtubeClient;
-}
-
-async function getVideoInfo(videoId: string) {
-  const client = await getYouTubeClient();
-  const info = await client.actions.execute("/player", {
-    videoId,
-    client: "YTMUSIC",
-    parse: true,
-  });
-
-  return info;
-}
 export interface YouTubeVideo {
   id: string;
   title: string;
@@ -89,127 +71,13 @@ export async function searchYouTube(
   }
 }
 
-function parseSignatureCipher(
-  signatureCipher: string
-): { url: string; signature: string; sp: string } | null {
-  try {
-    const params = new URLSearchParams(signatureCipher);
-    const url = params.get("url");
-    const signature = params.get("s");
-    const sp = params.get("sp");
-
-    if (!url || !signature || !sp) {
-      return null;
-    }
-
-    return {
-      url: decodeURIComponent(url),
-      signature: decodeURIComponent(signature),
-      sp: decodeURIComponent(sp),
-    };
-  } catch (error) {
-    console.log("Error parsing signature cipher:", error);
-    return null;
-  }
-}
-
-async function decipherSignature(
-  signature: string,
-  videoId: string
-): Promise<string> {
-  try {
-    const client = await getYouTubeClient();
-    await client.actions.execute("/player", {
-      videoId,
-      client: "YTMUSIC",
-    });
-
-    return signature;
-  } catch (error) {
-    console.log("[v0] Signature deciphering failed:", error);
-    return signature;
-  }
-}
-
 export async function getYouTubeAudioStream(videoId: string): Promise<string> {
   try {
-    const info = await getVideoInfo(videoId);
-    if (info.playability_status?.status !== "OK") {
-      throw new Error(
-        `Video is not playable: ${info.playability_status?.reason || "Unknown reason"}`
-      );
-    }
-
-    if (!info.streaming_data) {
-      throw new Error("No streaming data available for this video");
-    }
-
-    const adaptiveAudioFormats =
-      info.streaming_data.adaptive_formats?.filter((format) =>
-        format.mime_type?.includes("audio")
-      ) || [];
-
-    const regularAudioFormats =
-      info.streaming_data.formats?.filter((format) =>
-        format.mime_type?.includes("audio")
-      ) || [];
-
-    const allAudioFormats = [...adaptiveAudioFormats, ...regularAudioFormats];
-
-    if (allAudioFormats.length === 0) {
-      if (info.streaming_data.server_abr_streaming_url) {
-        return info.streaming_data.server_abr_streaming_url;
-      }
-      throw new Error("No audio streams available for this video");
-    }
-
-    const processedFormats = await Promise.all(
-      allAudioFormats.map(async (format) => {
-        if (format.url) {
-          return { ...format };
-        }
-
-        if (format.signature_cipher) {
-          const cipherData = parseSignatureCipher(format.signature_cipher);
-          if (cipherData) {
-            try {
-              const decipheredSig = await decipherSignature(
-                cipherData.signature,
-                videoId
-              );
-              const finalUrl = `${cipherData.url}&${cipherData.sp}=${encodeURIComponent(decipheredSig)}`;
-              return { ...format, url: finalUrl };
-            } catch (error) {
-              console.log(
-                "Failed to decipher signature for format:",
-                format.itag,
-                error
-              );
-              return format;
-            }
-          }
-        }
-
-        return format;
-      })
-    );
-
-    const validFormats = processedFormats.filter((format) => format.url);
-
-    if (validFormats.length === 0) {
-      throw new Error(
-        "No valid audio streams available after signature processing"
-      );
-    }
-
-    // Get the best quality audio stream from valid formats
-    const bestAudio = validFormats.reduce((best, current) => {
-      const bestBitrate = best.bitrate || 0;
-      const currentBitrate = current.bitrate || 0;
-      return currentBitrate > bestBitrate ? current : best;
+    return await getAudioStream(videoId, {
+      audioOnly: true,
+      quality: "0", // best quality
+      format: "bestaudio/best",
     });
-
-    return bestAudio.url!;
   } catch (error: any) {
     if (
       error.message.includes("Could not extract functions") ||
@@ -247,4 +115,13 @@ export function formatDuration(duration: string): string {
     return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export async function playSong(videoId: string): Promise<void> {
+  try {
+    const audioUrl = await getYouTubeAudioStream(videoId);
+    await playAudio(audioUrl);
+  } catch (error: any) {
+    throw new Error(`Failed to play song: ${error.message}`);
+  }
 }

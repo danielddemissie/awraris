@@ -175,30 +175,9 @@ async function playAudioStream(url: string, title: string): Promise<boolean> {
     let audioProcess: any;
 
     if (audioPlayer === "aplay") {
-      const { spawn } = require("child_process");
-      const https = require("https");
-      const http = require("http");
-
-      const client = url.startsWith("https") ? https : http;
       audioProcess = spawn("aplay", ["-f", "cd"], {
         stdio: ["pipe", "ignore", "pipe"],
       });
-
-      client
-        .get(url, (response: any) => {
-          if (response.statusCode === 200) {
-            response.pipe(audioProcess.stdin);
-          } else {
-            spinner.fail(
-              `❌ Failed to fetch audio stream: ${response.statusCode}`
-            );
-            return false;
-          }
-        })
-        .on("error", (error: any) => {
-          spinner.fail(`❌ Network error: ${error.message}`);
-          return false;
-        });
     } else if (audioPlayer === "cvlc") {
       audioProcess = spawn(
         audioPlayer,
@@ -229,6 +208,8 @@ async function playAudioStream(url: string, title: string): Promise<boolean> {
           chalk.red(`🦏 ${audioPlayer} not found. Please install it first.`)
         );
       }
+
+      throw error;
     });
 
     audioProcess.on("close", (code: any) => {
@@ -239,7 +220,7 @@ async function playAudioStream(url: string, title: string): Promise<boolean> {
 
     if (audioProcess.stderr) {
       audioProcess.stderr.on("data", (data: any) => {
-        console.log(`[v0] ${audioPlayer} stderr: ${data.toString()}`);
+        console.error(chalk.red(`🦏 ${data.toString()}`));
       });
     }
 
@@ -271,8 +252,7 @@ async function handleYouTubeStream(query: string) {
     const results = await searchYouTube(query, 5);
 
     if (results.length === 0) {
-      spinner.fail(`❌ No results found for "${query}"`);
-      return false;
+      throw new Error(`No results found for "${query}"`);
     }
 
     spinner.succeed(`🎵 Found ${results.length} results for "${query}"`);
@@ -301,8 +281,7 @@ async function handleYouTubeStream(query: string) {
     const selectedVideo = results[selectedIndex] || results[0];
 
     if (!selectedVideo) {
-      console.log(chalk.red("❌ Invalid selection"));
-      return false;
+      throw new Error(`❌ Invalid selection`);
     }
 
     // Get audio stream URL
@@ -371,9 +350,7 @@ async function handleYouTubeStream(query: string) {
 
 let puppeteerYTMusic: PuppeteerYouTubeMusic | null = null;
 
-async function initializePuppeteerYTMusic(
-  query: string
-): Promise<PuppeteerYouTubeMusic> {
+async function initializePuppeteerYTMusic(): Promise<PuppeteerYouTubeMusic> {
   if (!puppeteerYTMusic) {
     puppeteerYTMusic = new PuppeteerYouTubeMusic();
     await puppeteerYTMusic.initialize();
@@ -385,24 +362,22 @@ async function handlePuppeteerYouTubeStream(query: string) {
   const spinner = ora(`🦏 Initializing headless YouTube Music...`).start();
 
   try {
-    const ytMusic = await initializePuppeteerYTMusic(query);
+    const ytMusic = await initializePuppeteerYTMusic();
     spinner.succeed(`🎵 YouTube Music browser ready`);
-    const results = await ytMusic.searchMusic(query);
+    spinner.info(`🦏 Searching for "${query}" on YouTube Music...`);
+    const results = await searchYouTube(query, 5);
 
     if (results.length === 0) {
-      spinner.fail(`❌ No results found for "${query}"`);
-      return false;
+      throw new Error(`🦏 No results found for "${query}"`);
     }
-
-    console.log("result", results);
     spinner.succeed(`🎵 Found ${results.length} results for "${query}"`);
 
     // Display search results
     console.log(chalk.yellow("\n🎵 Search Results:"));
-    results.forEach((song, index) => {
+    results.forEach((video, index) => {
       console.log(
-        `${chalk.cyan((index + 1).toString())}. ${chalk.green(song.title)}\n` +
-          `   ${chalk.dim("by")} ${chalk.blue(song.artist)}`
+        `${chalk.cyan((index + 1).toString())}. ${chalk.green(video.title)}\n` +
+          `   ${chalk.dim("by")} ${chalk.blue(video.channelTitle)} ${chalk.dim("•")} ${chalk.yellow(formatDuration(video.duration))}`
       );
     });
 
@@ -422,8 +397,7 @@ async function handlePuppeteerYouTubeStream(query: string) {
     const selectedSong = results[selectedIndex] || results[0];
 
     if (!selectedSong) {
-      console.log(chalk.red("❌ Invalid selection"));
-      return false;
+      throw new Error("❌ Invalid selection");
     }
 
     // Play the selected song
@@ -432,16 +406,16 @@ async function handlePuppeteerYouTubeStream(query: string) {
     ).start();
 
     try {
-      if (!selectedSong.url) {
-        playSpinner.fail("❌ Selected song has no URL to play");
+      if (!selectedSong.id) {
+        playSpinner.fail("❌ Selected song has no ID to play");
         return false;
       }
-      await ytMusic.playMusic(selectedSong.url);
+      await ytMusic.playMusic(selectedSong.id);
       playSpinner.succeed(`🎵 Now playing: ${selectedSong.title}`);
 
       console.log(
         boxen(
-          `🎵 Now Playing: ${chalk.green(selectedSong.title)}\n🎤 Artist: ${chalk.blue(selectedSong.artist)}\n🦏 Source: ${chalk.cyan("YouTube Music (Headless)")}\n\n${chalk.dim("Music is playing in the background browser")}\n${chalk.dim("Press Ctrl+C to stop")}`,
+          `🎵 Now Playing: ${chalk.green(selectedSong.title)}\n🎤 Source: ${chalk.cyan("YouTube Music (Headless)")}\n\n${chalk.dim("Music is playing in the background browser")}\n${chalk.dim("Press Ctrl+C to stop")}`,
           {
             padding: 1,
             margin: 1,
@@ -471,8 +445,7 @@ async function handlePuppeteerYouTubeStream(query: string) {
 
       return true;
     } catch (playError: any) {
-      playSpinner.fail(`❌ Playback failed: ${playError.message}`);
-      return false;
+      throw playError;
     }
   } catch (error: any) {
     spinner.fail(`❌ Puppeteer YouTube Music Error: ${error.message}`);
@@ -501,45 +474,24 @@ async function handlePuppeteerYouTubeStream(query: string) {
 program
   .command("play")
   .description("Play music from various sources")
-  .argument("[query]", "Song or artist to play")
-  .option(
-    "-s, --source <source>",
-    "Music source (youtube, spotify, soundcloud)",
-    "youtube"
-  )
-  .option("-m, --method <method>", "YouTube method (api, browser)", "browser")
+  .argument("[query...]", "Song or artist to play")
+  .option("-m, --method <method>", "YouTube method (api, browser)", "api")
   .action(async (query, options) => {
-    if (!query) {
-      query = await input({
-        message: chalk.yellow("🎵 What would you like to play? "),
-      });
-    }
+    try {
+      if (!query) {
+        query = await input({
+          message: chalk.yellow("🎵 What would you like to play? "),
+        });
+      }
 
-    if (options.source === "youtube") {
       if (options.method === "browser") {
         await handlePuppeteerYouTubeStream(query);
       } else {
         await handleYouTubeStream(query);
       }
-    } else {
-      // Handle other sources normally
-      const spinner = ora(
-        `🦏 Searching for "${query}" on ${options.source}...`
-      ).start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      spinner.succeed(`🎵 Found "${query}" - Starting playback...`);
-
-      console.log(
-        boxen(
-          `🎵 Now Playing: ${chalk.green(query)}\n🦏 Source: ${chalk.blue(options.source.toUpperCase())}\n\n${chalk.dim("Press Ctrl+C to stop")}`,
-          {
-            padding: 1,
-            margin: 1,
-            borderStyle: "round",
-            borderColor: "green",
-          }
-        )
-      );
+    } catch (error: any) {
+      console.error(chalk.red("🦏 Error during playback:"), error.message);
+      process.exit(1);
     }
   });
 
@@ -549,84 +501,28 @@ program
   .description("Search for music")
   .argument("<query>", "Search query")
   .option("-l, --limit <number>", "Number of results", "10")
-  .option(
-    "-s, --source <source>",
-    "Search source (youtube, spotify)",
-    "youtube"
-  )
   .action(async (query, options) => {
-    if (options.source === "youtube") {
-      const spinner = ora(`🦏 Searching YouTube for "${query}"...`).start();
+    const spinner = ora(`🦏 Searching YouTube for "${query}"...`).start();
 
-      try {
-        const results = await searchYouTube(
-          query,
-          Number.parseInt(options.limit)
-        );
-        spinner.succeed(
-          `Found ${results.length} results for "${query}" on YouTube`
-        );
-
-        results.forEach((video, index) => {
-          console.log(
-            `${chalk.cyan((index + 1).toString())}. ${chalk.green(video.title)}\n` +
-              `   ${chalk.dim("by")} ${chalk.blue(video.channelTitle)} ${chalk.dim("•")} ${chalk.yellow(formatDuration(video.duration))}\n` +
-              `   ${chalk.dim("ID:")} ${chalk.gray(video.id)}`
-          );
-        });
-      } catch (error: any) {
-        spinner.fail(`❌ Search failed: ${error.message}`);
-        return;
-      }
-    } else {
-      // Fallback to mock search for other sources
-      const spinner = ora(`🦏 Searching for "${query}"...`).start();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      spinner.succeed(`Found ${options.limit} results for "${query}"`);
-
-      for (let i = 1; i <= Math.min(options.limit, 5); i++) {
-        console.log(
-          `${chalk.cyan(i)}. ${chalk.green(`${query} - Result ${i}`)}`
-        );
-      }
-    }
-  });
-
-// Queue command
-program
-  .command("queue")
-  .description("Manage playback queue")
-  .option("-l, --list", "Show current queue")
-  .option("-c, --clear", "Clear queue")
-  .action((options) => {
-    if (options.list) {
-      console.log(chalk.yellow("🎵 Current Queue:"));
-      console.log(chalk.dim("Queue is empty"));
-    }
-
-    if (options.clear) {
-      console.log(chalk.green("🦏 Queue cleared!"));
-    }
-  });
-
-// Config command
-program
-  .command("config")
-  .description("Configure AWRARIS settings")
-  .option("-s, --show", "Show current configuration")
-  .action((options) => {
-    if (options.show) {
-      console.log(
-        boxen(
-          `🦏 AWRARIS Configuration\n\n${chalk.cyan("Default Source:")} YouTube\n${chalk.cyan("Audio Quality:")} High\n${chalk.cyan("Theme:")} Dark`,
-          {
-            padding: 1,
-            margin: 1,
-            borderStyle: "round",
-            borderColor: "cyan",
-          }
-        )
+    try {
+      const results = await searchYouTube(
+        query,
+        Number.parseInt(options.limit)
       );
+      spinner.succeed(
+        `Found ${results.length} results for "${query}" on YouTube`
+      );
+
+      results.forEach((video, index) => {
+        console.log(
+          `${chalk.cyan((index + 1).toString())}. ${chalk.green(video.title)}\n` +
+            `   ${chalk.dim("by")} ${chalk.blue(video.channelTitle)} ${chalk.dim("•")} ${chalk.yellow(formatDuration(video.duration))}\n` +
+            `   ${chalk.dim("ID:")} ${chalk.gray(video.id)}`
+        );
+      });
+    } catch (error: any) {
+      spinner.fail(`❌ Search failed: ${error.message}`);
+      return;
     }
   });
 
