@@ -1,5 +1,6 @@
 import puppeteer, { type Browser, type Page } from "puppeteer";
 import chalk from "chalk";
+import ora from "ora";
 interface SongResult {
   title: string;
   artist: string;
@@ -12,13 +13,9 @@ export class PuppeteerYouTubeMusic {
   private page: Page | null = null;
   private isInitialized = false;
 
-  /**
-   * Initializes the headless browser and navigates to the YouTube Music search page.
-   * Handles the cookie consent prompt.
-   * @param query The initial search query.
-   */
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
+    const spinner = ora("Initialize puppeteer");
 
     this.browser = await puppeteer.launch({
       headless: true,
@@ -41,31 +38,21 @@ export class PuppeteerYouTubeMusic {
     );
 
     this.isInitialized = true;
-    console.log(chalk.green("✅ YouTube Music browser ready!"));
+    spinner.succeed(chalk.green("✅ YouTube Music browser ready!"));
   }
 
-  /**
-   * Searches for music on YouTube Music and returns a list of results.
-   * @param query The song or artist to search for.
-   * @returns An array of song objects with title, artist, and URL.
-   */
   async searchMusic(query: string): Promise<SongResult[]> {
     if (!this.page) throw new Error("Browser not initialized");
-
-    console.log(chalk.blue(`🔍 Searching for: ${query}`));
+    const spinner = ora(chalk.blue(`🔍 Searching for: ${query}`)).start();
 
     const url = `https://music.youtube.com/search?q=${encodeURIComponent(
       query
     )}`;
     try {
-      console.log(chalk.blue("🌐 Navigating to", url));
-      // Go to the search page
       await this.page.goto(url, {
         waitUntil: "networkidle2",
       });
 
-      // Handle cookie consent prompt if it appears
-      console.log(chalk.yellow("⏳ Checking for cookie consent prompt..."));
       try {
         const acceptButtonSelector =
           'form[action="https://consent.youtube.com/save"] button[aria-label="Accept all"]';
@@ -73,35 +60,21 @@ export class PuppeteerYouTubeMusic {
           timeout: 5000,
         });
         await this.page.click(acceptButtonSelector);
-        console.log(chalk.green("✅ Accepted cookies."));
         await this.page.waitForNavigation({ waitUntil: "networkidle2" });
-      } catch (error) {
-        console.log(
-          chalk.yellow("⚠️ No cookie consent prompt found, proceeding...")
-        );
-      }
-      console.log(chalk.blue("🎯 Navigating to video results..."));
+      } catch (error) {}
 
       const songResultsSelector = 'a[title="Show song results"]';
-
-      // Make sure we get only songs. Give up after four seconds.
       await this.page.waitForSelector(songResultsSelector);
-
       await Promise.all([
         this.page.click(songResultsSelector),
         this.page.waitForNavigation({ waitUntil: "networkidle2" }),
       ]);
 
-      console.log(chalk.blue("📄 Extracting search results..."));
       const searchResultsSelector = "ytmusic-tabbed-search-results-renderer";
-
-      //Wait for search results to load
       await this.page.waitForSelector(searchResultsSelector);
 
       const results = await this.page.evaluate(() => {
         const songs = [];
-
-        // inside div with id content and class style-scope ytmusic-shelf-renderer
         const selector = "#contents.ytmusic-shelf-renderer";
         const songElements = document.querySelectorAll(selector);
 
@@ -132,48 +105,29 @@ export class PuppeteerYouTubeMusic {
       });
 
       if (results.length === 0) {
-        console.log(chalk.yellow("⚠️ No songs found for this query."));
+        spinner.fail(chalk.yellow("⚠️ No songs found for this query."));
       } else {
-        console.log(chalk.green(`✅ Found ${results.length} songs`));
+        spinner.succeed(chalk.green(`✅ Found ${results.length} songs`));
       }
 
       return results;
     } catch (error) {
-      console.error(chalk.red("❌ Search failed:"), error);
+      spinner.fail(chalk.red("❌ Search failed:"));
       throw new Error(`Search failed: ${error}`);
     }
   }
 
-  /**
-   * Navigates to a specific song's URL and starts playback.
-   * @param videoId The URL of the song from the search results.
-   */
   async playMusic(videoId: string): Promise<void> {
     if (!this.page) throw new Error("Browser not initialized");
+    const url = `https://www.youtube.com/watch?v=${videoId}`;
+    const spinner = ora(
+      chalk.blue(`🎵 Playing song from URL: ${videoId}`)
+    ).start();
 
-    console.log(chalk.blue(`🎵 Playing song from URL: ${videoId}`));
-    await this.page.goto(`https://music.youtube.com/watch?v=${videoId}`, {
+    await this.page.goto(url, {
       waitUntil: "networkidle2",
     });
 
-    await this.page.screenshot({ path: "screenshot.png" });
-
-    // handle captcha
-    try {
-      await this.page.waitForSelector("iframe[src*='captcha']", {
-        timeout: 5000,
-      });
-      console.log(chalk.red("❌ CAPTCHA detected! Please solve it manually."));
-      await this.page.waitForFunction(
-        () => !document.querySelector("iframe[src*='captcha']"),
-        { polling: "mutation", timeout: 300000 } // wait up to 5 minutes
-      );
-      console.log(chalk.green("✅ CAPTCHA solved, continuing..."));
-    } catch (error) {
-      // No captcha found, continue
-    }
-
-    // handle cookie consent prompt if it appears
     try {
       const acceptButtonSelector =
         'form[action="https://consent.youtube.com/save"] button[aria-label="Accept all"]';
@@ -181,14 +135,9 @@ export class PuppeteerYouTubeMusic {
         timeout: 5000,
       });
       await this.page.click(acceptButtonSelector);
-      console.log(chalk.green("✅ Accepted cookies."));
       await this.page.waitForNavigation({ waitUntil: "networkidle2" });
-    } catch (error) {
-      // No cookie prompt found, continue
-    }
+    } catch (error) {}
 
-    this.page.screenshot({ path: "screenshot2.png" });
-    // Click the play button if it's not already playing
     try {
       const isPlaying = await this.page.evaluate(() => {
         const playButton = document.querySelector(
@@ -200,11 +149,11 @@ export class PuppeteerYouTubeMusic {
       if (!isPlaying) {
         await this.page.click("button.play-pause-button");
       }
-      // Wait for the player bar to appear to ensure the page has loaded
-      await this.page.waitForSelector("ytmusic-player-bar", { timeout: 15000 });
 
-      await this.page.screenshot({ path: "screenshot3.png" });
-      console.log(chalk.green("🎶 Music is now playing in the background!"));
+      await this.page.waitForSelector("ytmusic-player-bar", { timeout: 15000 });
+      spinner.succeed(
+        chalk.green("🎶 Music is now playing in the background!")
+      );
     } catch (error) {
       throw new Error(`Failed to start playback: ${error}`);
     }
