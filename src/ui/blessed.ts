@@ -7,6 +7,17 @@ import { QueueItem } from "../types";
 let currentQueue: QueueItem[] = [];
 let currentQueueIndex = 0;
 
+export function setQueueItems(items: QueueItem[]) {
+  currentQueue = items || [];
+  currentQueueIndex = 0;
+}
+
+export function setCurrentQueueIndex(idx: number) {
+  if (typeof idx === "number" && idx >= 0 && idx < currentQueue.length) {
+    currentQueueIndex = idx;
+  }
+}
+
 export async function interactivePlayUI(initialQueue: QueueItem[] = []) {
   const screen = blessed.screen({
     smartCSR: true,

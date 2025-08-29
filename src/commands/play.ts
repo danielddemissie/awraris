@@ -10,13 +10,15 @@ import { formatDuration, formatTime, parseDuration } from "../utils/index.js";
 import { searchYouTube } from "../utils/google-apis.js";
 import { QueueItem } from "../types/index.js";
 import { detectAudioPlayer, getYouTubeAudioStream } from "../utils/ytdlp.js";
+import {
+  interactivePlayUI,
+  setQueueItems,
+  setCurrentQueueIndex,
+} from "../ui/blessed.js";
 
 let currentQueue: QueueItem[] = [];
 let currentQueueIndex = 0;
 let currentProgressInterval: NodeJS.Timeout | null = null;
-
-const rhinoFrames = ["🦏", "🦏", "🦏", "🦏"];
-let rhinoFrameIndex = 0;
 
 async function playAudioStream(
   url: string,
@@ -147,56 +149,33 @@ async function playAudioStream(
 
     spinner.succeed(`🎵 Now playing: ${title}`);
 
-    const startTime = Date.now();
-    const rawDuration = currentQueue[currentQueueIndex]?.duration || "";
-    const formattedDuration = formatDuration(rawDuration);
-    const durationInSeconds = parseDuration(formattedDuration);
-
-    process.stdout.write("\x1B[s"); // save cursor
-    process.stdout.write("\x1B[?25l"); // hide cursor
-
-    currentProgressInterval = setInterval(() => {
-      const elapsedMs = Date.now() - startTime;
-      const progress = Math.min(elapsedMs / (durationInSeconds * 1000), 1);
-      const elapsedSeconds = Math.floor(elapsedMs / 1000);
-      const elapsedFormatted = formatTime(elapsedSeconds);
-
-      const barWidth = 30;
-      const filled = Math.floor(progress * barWidth);
-      const empty = barWidth - filled;
-      const progressBar =
-        chalk.green("━".repeat(filled)) + chalk.gray("━".repeat(empty));
-
-      process.stdout.write("\x1B[u\x1B[J"); // clear box
-
-      const rhino = rhinoFrames[rhinoFrameIndex];
-      rhinoFrameIndex = (rhinoFrameIndex + 1) % rhinoFrames.length;
-
-      const boxContent = boxen(
-        `${rhino}  ${chalk.bold("Now Playing")}: ${chalk.green(title)}\n\n` +
-          `${progressBar} ${chalk.yellow(elapsedFormatted)}/${chalk.yellow(formattedDuration)}\n` +
-          `🦏 Player: ${chalk.blue(audioPlayer.toUpperCase())}\n\n` +
-          `${chalk.dim("Press Ctrl+C to stop")}`,
-        {
-          padding: 1,
-          margin: 1,
-          borderStyle: "round",
-          borderColor: "green",
-          dimBorder: false,
-        }
-      );
-
-      process.stdout.write(boxContent + "\n");
-    }, 200);
-
-    process.on("SIGINT", () => {
-      if (currentProgressInterval) {
-        clearInterval(currentProgressInterval);
-        currentProgressInterval = null;
+    // If we have a queue, hand off UI to the interactive blessed queue manager.
+    if (currentQueue && currentQueue.length > 0) {
+      try {
+        setQueueItems(currentQueue);
+        setCurrentQueueIndex(currentQueueIndex);
+        void interactivePlayUI(currentQueue);
+      } catch (uiErr: any) {
+        // Fallback to previous console UI if blessed fails
+        console.error(
+          chalk.red("🦏 UI failed, falling back to console display:"),
+          uiErr.message
+        );
       }
-      process.stdout.write("\x1B[?25h");
-      process.exit(0);
-    });
+    } else {
+      // Non-queued single-play fallback: simple console message
+      console.log(
+        boxen(
+          `${chalk.green("Now Playing")}: ${title}\n\n${chalk.dim("Press Ctrl+C to stop")}`,
+          {
+            padding: 1,
+            margin: 1,
+            borderStyle: "round",
+            borderColor: "green",
+          }
+        )
+      );
+    }
 
     return true;
   } catch (error: any) {
@@ -449,7 +428,6 @@ async function handlePuppeteerYouTubeStream(query: string) {
 }
 
 // command action
-
 export async function handlePlayCommand(
   query: string,
   options: {
