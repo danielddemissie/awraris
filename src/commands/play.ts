@@ -6,30 +6,15 @@ import { platform } from "os";
 import { spawn } from "child_process";
 
 import { PuppeteerYouTubeMusic } from "../utils/puppeteer.js";
-import { formatDuration, formatTime, parseDuration } from "../utils/index.js";
+import { formatDuration } from "../utils/index.js";
 import { searchYouTube } from "../utils/google-apis.js";
-import { QueueItem } from "../types/index.js";
 import { detectAudioPlayer, getYouTubeAudioStream } from "../utils/ytdlp.js";
 
-let currentQueue: QueueItem[] = [];
-let currentQueueIndex = 0;
-let currentProgressInterval: NodeJS.Timeout | null = null;
-
-const rhinoFrames = ["🦏", "🦏", "🦏", "🦏"];
-let rhinoFrameIndex = 0;
-
-async function playAudioStream(
+export async function playAudioStream(
   url: string,
-  title: string,
-  queue?: QueueItem[]
+  title: string
 ): Promise<boolean> {
   const spinner = ora(`🦏 Initializing audio player...`).start();
-
-  if (queue) {
-    currentQueue = queue;
-    currentQueueIndex = 0;
-  }
-
   try {
     const audioPlayer = await detectAudioPlayer();
 
@@ -113,29 +98,8 @@ async function playAudioStream(
     });
 
     audioProcess.on("close", async (code: any) => {
-      if (currentProgressInterval) {
-        clearInterval(currentProgressInterval);
-        currentProgressInterval = null;
-      }
-      process.stdout.write("\x1B[u\x1B[J");
-      process.stdout.write("\x1B[?25h");
-
       if (code === 0) {
         console.log(chalk.green(`🦏 Finished playing "${title}"`));
-        if (
-          currentQueue.length > 0 &&
-          currentQueueIndex < currentQueue.length - 1
-        ) {
-          currentQueueIndex++;
-          const nextSong = currentQueue[currentQueueIndex];
-          console.log(
-            chalk.yellow(`\n🦏 Playing next song: ${nextSong.title}`)
-          );
-          await playAudioStream(nextSong.url, nextSong.title);
-        } else if (currentQueue.length > 0) {
-          console.log(chalk.blue("\n🦏 Reached end of queue!"));
-          process.exit(0);
-        }
       }
     });
 
@@ -147,56 +111,17 @@ async function playAudioStream(
 
     spinner.succeed(`🎵 Now playing: ${title}`);
 
-    const startTime = Date.now();
-    const rawDuration = currentQueue[currentQueueIndex]?.duration || "";
-    const formattedDuration = formatDuration(rawDuration);
-    const durationInSeconds = parseDuration(formattedDuration);
-
-    process.stdout.write("\x1B[s"); // save cursor
-    process.stdout.write("\x1B[?25l"); // hide cursor
-
-    currentProgressInterval = setInterval(() => {
-      const elapsedMs = Date.now() - startTime;
-      const progress = Math.min(elapsedMs / (durationInSeconds * 1000), 1);
-      const elapsedSeconds = Math.floor(elapsedMs / 1000);
-      const elapsedFormatted = formatTime(elapsedSeconds);
-
-      const barWidth = 30;
-      const filled = Math.floor(progress * barWidth);
-      const empty = barWidth - filled;
-      const progressBar =
-        chalk.green("━".repeat(filled)) + chalk.gray("━".repeat(empty));
-
-      process.stdout.write("\x1B[u\x1B[J"); // clear box
-
-      const rhino = rhinoFrames[rhinoFrameIndex];
-      rhinoFrameIndex = (rhinoFrameIndex + 1) % rhinoFrames.length;
-
-      const boxContent = boxen(
-        `${rhino}  ${chalk.bold("Now Playing")}: ${chalk.green(title)}\n\n` +
-          `${progressBar} ${chalk.yellow(elapsedFormatted)}/${chalk.yellow(formattedDuration)}\n` +
-          `🦏 Player: ${chalk.blue(audioPlayer.toUpperCase())}\n\n` +
-          `${chalk.dim("Press Ctrl+C to stop")}`,
+    console.log(
+      boxen(
+        `🎵 Now Playing: ${chalk.green(title)}\n🦏 Player: ${chalk.blue(audioPlayer.toUpperCase())}\n\n${chalk.dim("Press Ctrl+C to stop")}`,
         {
           padding: 1,
           margin: 1,
           borderStyle: "round",
           borderColor: "green",
-          dimBorder: false,
         }
-      );
-
-      process.stdout.write(boxContent + "\n");
-    }, 200);
-
-    process.on("SIGINT", () => {
-      if (currentProgressInterval) {
-        clearInterval(currentProgressInterval);
-        currentProgressInterval = null;
-      }
-      process.stdout.write("\x1B[?25h");
-      process.exit(0);
-    });
+      )
+    );
 
     return true;
   } catch (error: any) {
@@ -275,7 +200,7 @@ async function handleYouTubeStream(query: string) {
       return false;
     }
   } catch (error: any) {
-    spinner.fail(`❌ YouTube API Error: ${error.message}`);
+    spinner.fail(`❌ Error: ${error.message}`);
 
     if (error.message.includes("API key")) {
       console.log(
@@ -449,7 +374,6 @@ async function handlePuppeteerYouTubeStream(query: string) {
 }
 
 // command action
-
 export async function handlePlayCommand(
   query: string,
   options: {
