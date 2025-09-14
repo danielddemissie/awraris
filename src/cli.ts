@@ -10,6 +10,7 @@ import {
   handleNoArgsAwraris,
   handlePlayCommand,
   handleSearchCommand,
+  handlePlaylistCommand,
   puppeteerYTMusic,
 } from "./commands/index.js";
 import { colors } from "./ui/theme.js";
@@ -83,6 +84,19 @@ program
       process.exit(1);
     }
     void handleSearchCommand(query, options);
+  });
+
+// Playlist
+program
+  .command("playlist")
+  .description("Manage playlists: list, create, add, show, remove, delete")
+  .argument(
+    "[action]",
+    "Action to perform (list|create|add|show|remove|delete)"
+  )
+  .argument("[name]", "Playlist name or id")
+  .action((action: string, name: string) => {
+    void handlePlaylistCommand(action, name);
   });
 
 // Error handling
