@@ -54,17 +54,36 @@ program
 program
   .command("play")
   .description("Play music from various sources")
-  .argument("[query...]", "Song or artist to play")
   .option("-m, --method <method>", "YouTube method (api, browser)", "api")
-  .action(handlePlayCommand);
+  .argument("[query...]", "Song or artist to play")
+  .action((query: string, options: { method: "api" | "browser" }) => {
+    const parsedQuery = Array.isArray(query) ? query.join(" ") : query;
+    void handlePlayCommand(parsedQuery, options);
+  });
 
 // Search
 program
   .command("search")
   .description("Search for music")
-  .argument("<query>", "Search query")
   .option("-l, --limit <number>", "Number of results", "10")
-  .action(handleSearchCommand);
+  .argument("[query...]", "Search query")
+  .action((query: string, options: { limit: string }) => {
+    query = Array.isArray(query) ? query.join(" ") : query;
+    const limitNum = parseInt(options.limit, 10);
+    if (isNaN(limitNum) || limitNum <= 0) {
+      console.error(
+        colors.error("🦏 Error:"),
+        "Limit must be a positive number."
+      );
+      process.exit(1);
+    }
+    options.limit = limitNum.toString();
+    if (!query || query.trim().length === 0) {
+      console.error(colors.error("🦏 Error:"), "Search query cannot be empty.");
+      process.exit(1);
+    }
+    void handleSearchCommand(query, options);
+  });
 
 // Error handling
 program.exitOverride();
