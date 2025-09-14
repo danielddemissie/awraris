@@ -9,6 +9,7 @@ import { PuppeteerYouTubeMusic } from "../utils/puppeteer.js";
 import { formatDuration } from "../utils/index.js";
 import { searchYouTube } from "../utils/google-apis.js";
 import { detectAudioPlayer, getYouTubeAudioStream } from "../utils/ytdlp.js";
+import { listPlaylists } from "../utils/playlists.js";
 
 export async function playAudioStream(
   url: string,
@@ -130,6 +131,64 @@ export async function playAudioStream(
   }
 }
 
+export async function playAndAwait(
+  url: string,
+  title: string
+): Promise<boolean> {
+  try {
+    const audioPlayer = await detectAudioPlayer();
+    if (!audioPlayer) {
+      console.error("No audio player found");
+      return false;
+    }
+
+    let child: any;
+    if (audioPlayer === "aplay") {
+      child = spawn("aplay", ["-f", "cd"], {
+        stdio: ["pipe", "ignore", "pipe"],
+      });
+    } else if (audioPlayer === "cvlc") {
+      child = spawn(audioPlayer, [url, "--intf", "dummy", "--play-and-exit"], {
+        stdio: "ignore",
+      });
+    } else if (audioPlayer === "mpv") {
+      child = spawn(audioPlayer, [url, "--no-video", "--really-quiet"], {
+        stdio: "ignore",
+      });
+    } else if (audioPlayer === "afplay") {
+      child = spawn(audioPlayer, [url], { stdio: "ignore" });
+    } else {
+      child = spawn(audioPlayer, [url], { stdio: "ignore" });
+    }
+
+    return await new Promise<boolean>((resolve) => {
+      let finished = false;
+      child.on("error", (err: any) => {
+        if (!finished) {
+          finished = true;
+          console.error(`Playback failed: ${err.message}`);
+          resolve(false);
+        }
+      });
+      child.on("close", (code: number) => {
+        if (!finished) {
+          finished = true;
+          resolve(code === 0);
+        }
+      });
+      child.on("exit", (code: number) => {
+        if (!finished) {
+          finished = true;
+          resolve(code === 0);
+        }
+      });
+    });
+  } catch (err: any) {
+    console.error(`Playback error: ${err.message}`);
+    return false;
+  }
+}
+
 async function handleYouTubeStream(query: string) {
   const spinner = ora(`🦏 Searching for "${query}" on YouTube...`).start();
 
@@ -173,7 +232,50 @@ async function handleYouTubeStream(query: string) {
         `🦏 🎵 Audio stream ready to play "${selectedVideo.title}"`
       );
 
-      return await playAudioStream(audioUrl, selectedVideo.title);
+      // Check playlists: if this video exists in a playlist, after the current item finishes play the rest of the playlist
+      let played = await playAndAwait(audioUrl, selectedVideo.title);
+
+      try {
+        const playlists = await listPlaylists();
+        const containing = playlists.find((pl) =>
+          pl.tracks.some((t) => t.id === selectedVideo.id)
+        );
+        if (containing) {
+          const idx = containing.tracks.findIndex(
+            (t) => t.id === selectedVideo.id
+          );
+          if (idx >= 0 && idx < containing.tracks.length - 1) {
+            console.log(
+              `\n🦏 Continuing playlist "${containing.name}" after current track...`
+            );
+            for (let i = idx + 1; i < containing.tracks.length; i++) {
+              const t = containing.tracks[i];
+              let url = t.url;
+              if (!url && t.id) {
+                try {
+                  url = await getYouTubeAudioStream(t.id);
+                } catch (e: any) {
+                  console.error(
+                    `Failed to resolve ${t.title}: ${e.message}. Skipping.`
+                  );
+                  continue;
+                }
+              }
+              if (!url) {
+                console.error(`No playable URL for ${t.title}, skipping.`);
+                continue;
+              }
+              // Wait for each track to finish before proceeding
+              await playAndAwait(url, t.title);
+            }
+            console.log(chalk.green("Playlist finished."));
+          }
+        }
+      } catch (e: any) {
+        // If playlist continuation fails, just ignore and finish
+      }
+
+      return played;
     } catch (streamError: any) {
       streamSpinner.fail(`❌ Stream Error: ${streamError.message}`);
 
